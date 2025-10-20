@@ -2,3 +2,5 @@ name: yeelight_core_module
 name_module: yeelight_core_module
 multiply: false
 type: core
+dependencies:
+  - "yeelight"
