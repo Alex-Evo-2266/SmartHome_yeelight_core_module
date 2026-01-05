@@ -108,56 +108,104 @@ class YeelightDevice(BaseDevice):
 			return self.device is not None and self.device.get_properties() is not None
 		except Exception:
 			return False
-
-	def load(self):
+	
+	async def async_load(self) -> dict[str, str]:
 		values = self.device.get_properties()
-		state = self.get_field_by_name("state")
-		if(state and "power" in values):
-			val = "0"
-			if(values["power"] == "on"):
-				val = "1"
-			save_new_date(state,val)
+		patch: dict[str, str] = {}
 
-		brightness = self.get_field_by_name("brightness")
-		if(brightness and "current_brightness" in values):
-			save_new_date(brightness,values["current_brightness"])
+		def maybe(name: str, new_val: str):
+			field = self.get_field_by_name(name)
+			if not field:
+				return
+			if field.get() != new_val:
+				field.set(new_val)
+				patch[name] = new_val
 
-		bg_brightness = self.get_field_by_name("bg_bright")
-		if(bg_brightness and "bg_bright" in values):
-			save_new_date(bg_brightness,values["bg_bright"])
+		if "power" in values:
+			maybe("state", "1" if values["power"] == "on" else "0")
 
-		mode = self.get_field_by_name("night_light")
-		if(mode and "active_mode" in values):
-			save_new_date(mode,values["active_mode"])
+		if "current_brightness" in values:
+			maybe("brightness", values["current_brightness"])
 
-		temp = self.get_field_by_name("temp")
-		if(temp and "ct" in values):
-			save_new_date(temp,values["ct"])
+		if "bg_bright" in values:
+			maybe("bg_bright", values["bg_bright"])
+
+		if "active_mode" in values:
+			maybe("night_light", values["active_mode"])
+
+		if "ct" in values:
+			maybe("temp", values["ct"])
+
+		if "bg_ct" in values:
+			maybe("bg_temp", values["bg_ct"])
+
+		if "hue" in values:
+			maybe("color", values["hue"])
+
+		if "bg_hue" in values:
+			maybe("bg_color", values["bg_hue"])
+
+		if "bg_power" in values:
+			maybe("bg_power", "1" if values["bg_power"] == "on" else "0")
+
+		if "sat" in values:
+			maybe("saturation", values["sat"])
+
+		if "bg_sat" in values:
+			maybe("bg_saturation", values["bg_sat"])
+
+		return patch
+
+
+	# def load(self):
+	# 	values = self.device.get_properties()
+	# 	state = self.get_field_by_name("state")
+	# 	if(state and "power" in values):
+	# 		val = "0"
+	# 		if(values["power"] == "on"):
+	# 			val = "1"
+	# 		save_new_date(state,val)
+
+	# 	brightness = self.get_field_by_name("brightness")
+	# 	if(brightness and "current_brightness" in values):
+	# 		save_new_date(brightness,values["current_brightness"])
+
+	# 	bg_brightness = self.get_field_by_name("bg_bright")
+	# 	if(bg_brightness and "bg_bright" in values):
+	# 		save_new_date(bg_brightness,values["bg_bright"])
+
+	# 	mode = self.get_field_by_name("night_light")
+	# 	if(mode and "active_mode" in values):
+	# 		save_new_date(mode,values["active_mode"])
+
+	# 	temp = self.get_field_by_name("temp")
+	# 	if(temp and "ct" in values):
+	# 		save_new_date(temp,values["ct"])
 			
-		bg_temp = self.get_field_by_name("bg_temp")
-		if(bg_temp and "bg_ct" in values):
-			save_new_date(bg_temp,values["bg_ct"])
+	# 	bg_temp = self.get_field_by_name("bg_temp")
+	# 	if(bg_temp and "bg_ct" in values):
+	# 		save_new_date(bg_temp,values["bg_ct"])
 
-		color = self.get_field_by_name("color")
-		if(color and "hue" in values):
-			save_new_date(color,values["hue"])
+	# 	color = self.get_field_by_name("color")
+	# 	if(color and "hue" in values):
+	# 		save_new_date(color,values["hue"])
 			
-		bg_color = self.get_field_by_name("bg_color")
-		if(bg_color and "bg_hue" in values):
-			save_new_date(bg_color,values["bg_hue"])
+	# 	bg_color = self.get_field_by_name("bg_color")
+	# 	if(bg_color and "bg_hue" in values):
+	# 		save_new_date(bg_color,values["bg_hue"])
 			
-		bg_power =  self.get_field_by_name("bg_power")
-		if(bg_power and "bg_power" in values):
-			val = "0"
-			if(values["bg_power"] == "on"):
-				val = "1"
-			save_new_date(bg_power,val)
-		saturation = self.get_field_by_name("saturation")
-		if(saturation and "sat" in values):
-			save_new_date(saturation,values["sat"])
-		bg_saturation = self.get_field_by_name("bg_saturation")
-		if(bg_saturation and "bg_sat" in values):
-			save_new_date(bg_saturation,values["bg_sat"])
+	# 	bg_power =  self.get_field_by_name("bg_power")
+	# 	if(bg_power and "bg_power" in values):
+	# 		val = "0"
+	# 		if(values["bg_power"] == "on"):
+	# 			val = "1"
+	# 		save_new_date(bg_power,val)
+	# 	saturation = self.get_field_by_name("saturation")
+	# 	if(saturation and "sat" in values):
+	# 		save_new_date(saturation,values["sat"])
+	# 	bg_saturation = self.get_field_by_name("bg_saturation")
+	# 	if(bg_saturation and "bg_sat" in values):
+	# 		save_new_date(bg_saturation,values["bg_sat"])
 
 	def get_value(self, name):
 		self.load()
