@@ -219,9 +219,14 @@ class YeelightDevice(BaseDevice):
 		field = self.get_field(field_id)
 		name = field.get_name()
 
+		logger.info(f"yeelight: set new value {field_id} = {value}")
+
 		await super().set_value(field_id, value, script)
 
+		logger.info(f"yeelight: super complite")
+
 		async with self._lock:
+			logger.info(f"yeelight: switch")
 			try:
 				if name == "state":
 					await self._call(
