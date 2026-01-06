@@ -71,6 +71,9 @@ class YeelightDevice(BaseDevice):
 		"""Run blocking Yeelight call in executor"""
 		loop = asyncio.get_running_loop()
 		return await loop.run_in_executor(None, fn, *args)
+	
+	def set_interval(self, poll_interval:float):
+		self._poll_interval = poll_interval
 
 	# -------------------- INIT DEVICE --------------------
 
