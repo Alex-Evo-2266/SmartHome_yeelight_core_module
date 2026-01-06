@@ -151,6 +151,7 @@ class YeelightDevice(BaseDevice):
 
 			except Exception:
 				logger.exception("Yeelight initialization error")
+				raise
 
 	# -------------------- STATE --------------------
 
