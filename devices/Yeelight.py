@@ -1,12 +1,16 @@
+import asyncio
+import time
+import logging
 from yeelight import Bulb, PowerMode
+
 from app.ingternal.device.schemas.config import ChangeField, ConfigSchema
 from app.ingternal.device.schemas.device import DeviceSerializeSchema, DeviceInitFieldSchema
 from app.ingternal.device.classes.baseDevice import BaseDevice
 from app.ingternal.device.schemas.enums import TypeDeviceField, DeviceGetData
 from app.ingternal.device.interface.field_class import IField
 from app.ingternal.device_types.types_names import TypesDeviceEnum
-import logging
 from app.ingternal.logs.logs import LogManager
+
 
 logger = logging.getLogger(__name__)
 logsHandler = LogManager("YeelightDevice", level=logging.DEBUG)
@@ -14,12 +18,8 @@ logger.addHandler(logsHandler.get_file_handler())
 logger.setLevel(logging.DEBUG)
 
 
-def save_new_date(val: IField, status: str):
-	if val.get() != status:
-		val.set(status)
-
-
 class YeelightDevice(BaseDevice):
+
 	device_config = ConfigSchema(
 		class_img="Yeelight/unnamed.jpg",
 		fields_creation=False,
@@ -45,49 +45,94 @@ class YeelightDevice(BaseDevice):
 		),
 	)
 
+	# -------------------- INIT --------------------
+
 	def __init__(self, device: DeviceSerializeSchema):
 		super().__init__(device)
-		self.device = None
-		self.cached_values = {}
+
+		self.device: Bulb | None = None
+		self.cached_values: dict = {}
+
+		self._lock = asyncio.Lock()
+		self._initialized = False
+		self._last_poll = 0.0
+		self._poll_interval = 5.0  # сек
 
 		if not self.data.address:
 			logger.warning("Device address is missing.")
 			return
+
 		self.device = Bulb(self.data.address)
 		self.data.type_get_data = DeviceGetData.PULL
 
+	# -------------------- INTERNAL --------------------
+
+	async def _call(self, fn, *args):
+		"""Run blocking Yeelight call in executor"""
+		loop = asyncio.get_running_loop()
+		return await loop.run_in_executor(None, fn, *args)
+
+	# -------------------- INIT DEVICE --------------------
+
 	async def async_init(self):
+		if self._initialized or not self.device:
+			return
 
-		try:
-			values = self.device.get_properties()
-			self.minmaxValue = self.device.get_model_specs()
-			self.cached_values = values
-			
-			logger.debug(f"data lamp {str(values)}")
-			if not values:
-				logger.warning("Failed to retrieve device properties.")
-				return
-			
-			if(self.get_field_by_name("night_light") is None and self.minmaxValue["night_light"] != False):
-				self._add_field(DeviceInitFieldSchema(name="night_light", read_only=False, high="1", low="0", type=TypeDeviceField.BINARY, icon="", value=values["active_mode"],virtual_field=False))
+		async with self._lock:
+			try:
+				values = await self._call(self.device.get_properties)
+				if not values:
+					logger.warning("Failed to retrieve device properties.")
+					return
 
-			field_mappings = {
-				"state": ("power", "1", "0", TypeDeviceField.BINARY),
-				"bg_power": ("bg_power", "1", "0", TypeDeviceField.BINARY),
-				"brightness": ("current_brightness", "100", "0", TypeDeviceField.NUMBER),
-				"bg_bright": ("bg_bright", "100", "0", TypeDeviceField.NUMBER),
-				"color": ("hue", "360", "0", TypeDeviceField.NUMBER),
-				"bg_color": ("bg_hue", "360", "0", TypeDeviceField.NUMBER),
-				"saturation": ("sat", "100", "0", TypeDeviceField.NUMBER),
-				"bg_saturation": ("bg_sat", "100", "0", TypeDeviceField.NUMBER),
-				"temp": ("ct", str(self.minmaxValue["color_temp"]["max"]), str(self.minmaxValue["color_temp"]["min"]), TypeDeviceField.NUMBER),
-				"bg_temp": ("bg_ct", "6500", "1700", TypeDeviceField.NUMBER),
-			}
-			
-			for field, (key, high, low, field_type) in field_mappings.items():
-				if self.get_field_by_name(field) is None and key in values and not values[key] is None:
-					self._add_field(
-						DeviceInitFieldSchema(
+				self.cached_values = values
+
+				# model specs — один раз
+				try:
+					self.minmaxValue = await self._call(self.device.get_model_specs)
+				except Exception:
+					self.minmaxValue = {
+						"color_temp": {"min": 1700, "max": 6500},
+						"night_light": True,
+					}
+
+				# night light
+				if (
+					self.get_field_by_name("night_light") is None
+					and self.minmaxValue.get("night_light")
+				):
+					self._add_field(DeviceInitFieldSchema(
+						name="night_light",
+						read_only=False,
+						high="1",
+						low="0",
+						type=TypeDeviceField.BINARY,
+						icon="",
+						value=values.get("active_mode", 0),
+						virtual_field=False,
+					))
+
+				field_mappings = {
+					"state": ("power", "1", "0", TypeDeviceField.BINARY),
+					"bg_power": ("bg_power", "1", "0", TypeDeviceField.BINARY),
+					"brightness": ("current_brightness", "100", "0", TypeDeviceField.NUMBER),
+					"bg_bright": ("bg_bright", "100", "0", TypeDeviceField.NUMBER),
+					"color": ("hue", "360", "0", TypeDeviceField.NUMBER),
+					"bg_color": ("bg_hue", "360", "0", TypeDeviceField.NUMBER),
+					"saturation": ("sat", "100", "0", TypeDeviceField.NUMBER),
+					"bg_saturation": ("bg_sat", "100", "0", TypeDeviceField.NUMBER),
+					"temp": (
+						"ct",
+						str(self.minmaxValue["color_temp"]["max"]),
+						str(self.minmaxValue["color_temp"]["min"]),
+						TypeDeviceField.NUMBER,
+					),
+					"bg_temp": ("bg_ct", "6500", "1700", TypeDeviceField.NUMBER),
+				}
+
+				for field, (key, high, low, field_type) in field_mappings.items():
+					if self.get_field_by_name(field) is None and values.get(key) is not None:
+						self._add_field(DeviceInitFieldSchema(
 							name=field,
 							read_only=False,
 							high=high,
@@ -96,165 +141,158 @@ class YeelightDevice(BaseDevice):
 							icon="",
 							value=values[key],
 							virtual_field=False,
-						)
-					)
-		except Exception as e:
-			logger.exception(f"Yeelight initialization error: {e}")
-			self.device = None
+						))
+
+				self._initialized = True
+				logger.debug("Yeelight initialized successfully")
+
+			except Exception:
+				logger.exception("Yeelight initialization error")
+
+	# -------------------- STATE --------------------
 
 	@property
-	def is_conected(self):
-		try:
-			return self.device is not None and self.device.get_properties() is not None
-		except Exception:
-			return False
-	
+	def is_conected(self) -> bool:
+		return self.device is not None and self._initialized
+
+	# -------------------- POLLING --------------------
+
 	async def async_load(self) -> dict[str, str]:
-		values = self.device.get_properties()
+		if not self.device:
+			return {}
+
+		now = time.monotonic()
+		if now - self._last_poll < self._poll_interval:
+			return {}
+
+		async with self._lock:
+			try:
+				values = await self._call(self.device.get_properties)
+				self.cached_values = values
+				self._last_poll = now
+			except Exception as e:
+				logger.warning(f"Yeelight poll failed: {e}")
+				return {}
+
 		patch: dict[str, str] = {}
 
-		def maybe(name: str, new_val: str):
+		def maybe(name: str, new_val):
 			field = self.get_field_by_name(name)
-			if not field:
-				return
-			if field.get() != new_val:
+			if field and field.get() != new_val:
 				field.set(new_val)
 				patch[name] = new_val
 
-		if "power" in values:
-			maybe("state", "1" if values["power"] == "on" else "0")
+		v = self.cached_values
 
-		if "current_brightness" in values:
-			maybe("brightness", values["current_brightness"])
-
-		if "bg_bright" in values:
-			maybe("bg_bright", values["bg_bright"])
-
-		if "active_mode" in values:
-			maybe("night_light", values["active_mode"])
-
-		if "ct" in values:
-			maybe("temp", values["ct"])
-
-		if "bg_ct" in values:
-			maybe("bg_temp", values["bg_ct"])
-
-		if "hue" in values:
-			maybe("color", values["hue"])
-
-		if "bg_hue" in values:
-			maybe("bg_color", values["bg_hue"])
-
-		if "bg_power" in values:
-			maybe("bg_power", "1" if values["bg_power"] == "on" else "0")
-
-		if "sat" in values:
-			maybe("saturation", values["sat"])
-
-		if "bg_sat" in values:
-			maybe("bg_saturation", values["bg_sat"])
+		if "power" in v:
+			maybe("state", "1" if v["power"] == "on" else "0")
+		if "current_brightness" in v:
+			maybe("brightness", v["current_brightness"])
+		if "bg_bright" in v:
+			maybe("bg_bright", v["bg_bright"])
+		if "active_mode" in v:
+			maybe("night_light", v["active_mode"])
+		if "ct" in v:
+			maybe("temp", v["ct"])
+		if "bg_ct" in v:
+			maybe("bg_temp", v["bg_ct"])
+		if "hue" in v:
+			maybe("color", v["hue"])
+		if "bg_hue" in v:
+			maybe("bg_color", v["bg_hue"])
+		if "bg_power" in v:
+			maybe("bg_power", "1" if v["bg_power"] == "on" else "0")
+		if "sat" in v:
+			maybe("saturation", v["sat"])
+		if "bg_sat" in v:
+			maybe("bg_saturation", v["bg_sat"])
 
 		return patch
 
+	# -------------------- SET VALUE --------------------
 
-	# def load(self):
-	# 	values = self.device.get_properties()
-	# 	state = self.get_field_by_name("state")
-	# 	if(state and "power" in values):
-	# 		val = "0"
-	# 		if(values["power"] == "on"):
-	# 			val = "1"
-	# 		save_new_date(state,val)
-
-	# 	brightness = self.get_field_by_name("brightness")
-	# 	if(brightness and "current_brightness" in values):
-	# 		save_new_date(brightness,values["current_brightness"])
-
-	# 	bg_brightness = self.get_field_by_name("bg_bright")
-	# 	if(bg_brightness and "bg_bright" in values):
-	# 		save_new_date(bg_brightness,values["bg_bright"])
-
-	# 	mode = self.get_field_by_name("night_light")
-	# 	if(mode and "active_mode" in values):
-	# 		save_new_date(mode,values["active_mode"])
-
-	# 	temp = self.get_field_by_name("temp")
-	# 	if(temp and "ct" in values):
-	# 		save_new_date(temp,values["ct"])
-			
-	# 	bg_temp = self.get_field_by_name("bg_temp")
-	# 	if(bg_temp and "bg_ct" in values):
-	# 		save_new_date(bg_temp,values["bg_ct"])
-
-	# 	color = self.get_field_by_name("color")
-	# 	if(color and "hue" in values):
-	# 		save_new_date(color,values["hue"])
-			
-	# 	bg_color = self.get_field_by_name("bg_color")
-	# 	if(bg_color and "bg_hue" in values):
-	# 		save_new_date(bg_color,values["bg_hue"])
-			
-	# 	bg_power =  self.get_field_by_name("bg_power")
-	# 	if(bg_power and "bg_power" in values):
-	# 		val = "0"
-	# 		if(values["bg_power"] == "on"):
-	# 			val = "1"
-	# 		save_new_date(bg_power,val)
-	# 	saturation = self.get_field_by_name("saturation")
-	# 	if(saturation and "sat" in values):
-	# 		save_new_date(saturation,values["sat"])
-	# 	bg_saturation = self.get_field_by_name("bg_saturation")
-	# 	if(bg_saturation and "bg_sat" in values):
-	# 		save_new_date(bg_saturation,values["bg_sat"])
-
-	def get_value(self, name):
-		self.load()
-		return super().get_value(name)
-
-	def get_values(self):
-		self.load()
-		return super().get_values()
-
-	def set_value(self, field_id: str, value: str, script:bool = False):
-		new_val = value
+	async def set_value(self, field_id: str, value: str, script: bool = False):
 		field = self.get_field(field_id)
 		name = field.get_name()
-		super().set_value(field_id, value, script)
-		try:
-			if name == "state":
-				# self.device.turn_on() if int(new_val) == 1 else self.device.turn_off()
-				self.device.send_command("set_power", ["on" if int(new_val) == 1 else "off"])
-			elif name == "brightness":
-				self.device.set_brightness(int(new_val))
-			elif name == "bg_bright":
-				self.device.send_command("bg_set_bright", [int(new_val)])
-			elif name == "temp":
-				self.device.set_power_mode(PowerMode.NORMAL)
-				self.device.set_color_temp(int(new_val))
-			elif name == "bg_temp":
-				self.device.send_command("bg_set_ct_abx", [int(new_val)])
-			elif name == "night_light":
-				self.device.set_power_mode(PowerMode.MOONLIGHT if int(new_val) == 1 else PowerMode.NORMAL)
-			elif name == "color":
-				self.device.set_power_mode(PowerMode.HSV)
-				self.device.set_hsv(int(new_val), int(self.get_field_by_name("saturation").get()))
-			elif name == "bg_color":
-				self.device.send_command("bg_set_hsv", [int(new_val), int(self.get_field_by_name("bg_saturation").get())])
-			elif name == "saturation":
-				self.device.set_power_mode(PowerMode.HSV)
-				self.device.set_hsv(int(self.get_field_by_name("color").get()), int(new_val))
-			elif name == "bg_saturation":
-				self.device.send_command("bg_set_hsv", [int(self.get_field_by_name("bg_color").get()), int(new_val)])
-			elif name == "bg_power":
-				self.device.send_command("bg_set_power", ["on" if int(new_val) == 1 else "off"])
-		except Exception as e:
-			logger.exception(f"Error setting Yeelight value ({name}): {e}")
+
+		await super().set_value(field_id, value, script)
+
+		async with self._lock:
+			try:
+				if name == "state":
+					await self._call(
+						self.device.send_command,
+						"set_power",
+						["on" if int(value) == 1 else "off"],
+					)
+					self.cached_values["power"] = "on" if int(value) == 1 else "off"
+
+				elif name == "brightness":
+					await self._call(self.device.set_brightness, int(value))
+					self.cached_values["current_brightness"] = int(value)
+
+				elif name == "bg_bright":
+					await self._call(self.device.send_command, "bg_set_bright", [int(value)])
+					self.cached_values["bg_bright"] = int(value)
+
+				elif name == "temp":
+					await self._call(self.device.set_power_mode, PowerMode.NORMAL)
+					await self._call(self.device.set_color_temp, int(value))
+					self.cached_values["ct"] = int(value)
+
+				elif name == "bg_temp":
+					await self._call(self.device.send_command, "bg_set_ct_abx", [int(value)])
+					self.cached_values["bg_ct"] = int(value)
+
+				elif name == "night_light":
+					mode = PowerMode.MOONLIGHT if int(value) == 1 else PowerMode.NORMAL
+					await self._call(self.device.set_power_mode, mode)
+					self.cached_values["active_mode"] = int(value)
+
+				elif name == "color":
+					await self._call(
+						self.device.set_hsv,
+						int(value),
+						int(self.get_field_by_name("saturation").get()),
+					)
+					self.cached_values["hue"] = int(value)
+
+				elif name == "bg_color":
+					await self._call(
+						self.device.send_command,
+						"bg_set_hsv",
+						[int(value), int(self.get_field_by_name("bg_saturation").get())],
+					)
+					self.cached_values["bg_hue"] = int(value)
+
+				elif name == "saturation":
+					await self._call(
+						self.device.set_hsv,
+						int(self.get_field_by_name("color").get()),
+						int(value),
+					)
+					self.cached_values["sat"] = int(value)
+
+				elif name == "bg_saturation":
+					await self._call(
+						self.device.send_command,
+						"bg_set_hsv",
+						[int(self.get_field_by_name("bg_color").get()), int(value)],
+					)
+					self.cached_values["bg_sat"] = int(value)
+
+				elif name == "bg_power":
+					await self._call(
+						self.device.send_command,
+						"bg_set_power",
+						["on" if int(value) == 1 else "off"],
+					)
+					self.cached_values["bg_power"] = "on" if int(value) == 1 else "off"
+
+			except Exception as e:
+				logger.exception(f"Error setting Yeelight value ({name}): {e}")
+
+	# -------------------- CLOSE --------------------
 
 	def close(self):
-		if self.device:
-			try:
-				self.device._socket.close()  # Закрываем сокет напрямую
-			except Exception as e:
-				logger.warning(f"Error closing socket: {e}")
-			finally:
-				self.device = None
+		self.device = None
