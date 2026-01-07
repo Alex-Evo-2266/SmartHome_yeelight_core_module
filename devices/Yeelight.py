@@ -50,8 +50,8 @@ class YeelightDevice(BaseDevice):
 
 		self._lock = asyncio.Lock()
 		self._initialized = False
-		self._last_poll = 0.0
-		self._poll_interval = 5.0  # сек
+		# self._last_poll = 0.0
+		# self._poll_interval = 5.0  # сек
 
 		if not self.data.address:
 			logger.warning("Device address is missing.")
@@ -67,8 +67,8 @@ class YeelightDevice(BaseDevice):
 		loop = asyncio.get_running_loop()
 		return await loop.run_in_executor(None, fn, *args)
 	
-	def set_interval(self, poll_interval:float):
-		self._poll_interval = poll_interval
+	# def set_interval(self, poll_interval:float):
+	# 	self._poll_interval = poll_interval
 
 	# -------------------- INIT DEVICE --------------------
 
@@ -160,15 +160,15 @@ class YeelightDevice(BaseDevice):
 		if not self.device:
 			return {}
 
-		now = time.monotonic()
-		if now - self._last_poll < self._poll_interval:
-			return {}
+		# now = time.monotonic()
+		# if now - self._last_poll < self._poll_interval:
+		# 	return {}
 
 		async with self._lock:
 			try:
 				values = await self._call(self.device.get_properties)
 				self.cached_values = values
-				self._last_poll = now
+				# self._last_poll = now
 			except Exception as e:
 				logger.warning(f"Yeelight poll failed: {e}")
 				return {}
