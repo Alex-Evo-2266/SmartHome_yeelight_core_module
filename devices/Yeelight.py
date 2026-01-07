@@ -9,14 +9,9 @@ from app.ingternal.device.classes.baseDevice import BaseDevice
 from app.ingternal.device.schemas.enums import TypeDeviceField, DeviceGetData
 from app.ingternal.device.interface.field_class import IField
 from app.ingternal.device_types.types_names import TypesDeviceEnum
-from app.ingternal.logs.logs import LogManager
+from app.ingternal.logs import MyLogger
 
-
-logger = logging.getLogger(__name__)
-logsHandler = LogManager("YeelightDevice", level=logging.DEBUG)
-logger.addHandler(logsHandler.get_file_handler())
-logger.setLevel(logging.DEBUG)
-
+logger = MyLogger().get_logger(__name__)
 
 class YeelightDevice(BaseDevice):
 
