@@ -210,13 +210,13 @@ class YeelightDevice(BaseDevice):
 
 	# -------------------- SET VALUE --------------------
 
-	async def set_value(self, field_id: str, value: str, script: bool = False):
+	async def set_value(self, field_id: str, value: str, *, script: bool = False, save_status: bool = False):
 		field = self.get_field(field_id)
 		name = field.get_name()
 
 		logger.info(f"yeelight: set new value {field_id} = {value}")
 
-		await super().set_value(field_id, value, script)
+		await super().set_value(field_id, value, script=script, save_status=save_status)
 
 		logger.info(f"yeelight: super complite")
 
