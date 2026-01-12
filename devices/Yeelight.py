@@ -1,15 +1,14 @@
 import asyncio
 import time
-import logging
 from yeelight import Bulb, PowerMode
 
-from app.ingternal.device.schemas.config import ChangeField, ConfigSchema
-from app.ingternal.device.schemas.device import DeviceSerializeSchema, DeviceInitFieldSchema
-from app.ingternal.device.classes.baseDevice import BaseDevice
-from app.ingternal.device.schemas.enums import TypeDeviceField, DeviceGetData
-from app.ingternal.device.interface.field_class import IField
-from app.ingternal.device_types.types_names import TypesDeviceEnum
-from app.ingternal.logs import MyLogger
+from app.schemas.config import ChangeField, ConfigSchema
+from app.schemas.device.device import DeviceSerializeSchema, DeviceInitFieldSchema
+from app.core.entities.device.baseDevice import BaseDevice
+from app.schemas.device.enums import TypeDeviceField, DeviceGetData
+from app.core.ports.interface.field_class import IField
+from app.schemas.device.types_names import TypesDeviceEnum
+from app.pkg.logger import MyLogger
 
 logger = MyLogger().get_logger(__name__)
 
