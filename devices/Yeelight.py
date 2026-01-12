@@ -2,7 +2,7 @@ import asyncio
 import time
 from yeelight import Bulb, PowerMode
 
-from app.schemas.config import ChangeField, ConfigSchema
+from app.schemas.device.config import ChangeField, ConfigSchema
 from app.schemas.device.device import DeviceSerializeSchema, DeviceInitFieldSchema
 from app.core.entities.device.baseDevice import BaseDevice
 from app.schemas.device.enums import TypeDeviceField, DeviceGetData
